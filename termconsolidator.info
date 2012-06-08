@@ -1,0 +1,5 @@
+name = Term Consolidator
+description = "The redundant term eliminator: scans nodes for the use of redundant terms and reassigns them to the original."
+core = 7.x
+
+

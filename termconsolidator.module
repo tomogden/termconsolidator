@@ -1,0 +1,123 @@
+<?php
+/**
+ * @file
+ * Term Consolidator module file.
+ *
+ */
+
+/**
+ * Implements hook_help.
+ *
+ * Displays help and module information.
+ *
+ * @param path
+ *   Which path of the site we're using to display help
+ * @param arg
+ *   Array that holds the current path as returned from arg() function
+ */
+  function termconsolidator_help($path, $arg) {
+    switch ($path) {
+      case "admin/help#termconsolidator":
+        return '<p>' . t("This module scans nodes for the use of redundant terms and reassigns them to the original term.") . '</p>';
+        break;
+    }
+  }
+
+/**
+ * Implements hook_menu().
+ *
+ */
+  function termconsolidator_menu() {
+    $items = array();
+
+    // Fix-it operation for cleaning up nodes.
+    $items['termconsolidator/%/%/%'] = array(
+      'title' => 'Fixer for nodes',
+      'description' => 'Scan nodes for redundant terms.',
+      'page callback'=>'termconsolidator_reassign',
+      'page arguments' => array(1,2,3),
+      'access arguments' => array('administer nodes'),
+      //'file' => 'termconsolidator.inc',
+      'type'=>MENU_CALLBACK,
+    );
+
+    return $items;
+  }
+
+/**
+ * Callback function for reassigning term data.
+ *
+ * Parses nodes and makes logical reassignments.
+ *
+ */
+  function termconsolidator_reassign($bundle, $offset_iterations = 0, $max_iterations = 100) {
+    // SET CONSTANTS
+      $iteration_count = 0;
+      $changecount = 0;
+      $skipcount = 0;
+
+    // PARSE THE NODES
+      $result = db_query("SELECT nid FROM {node} WHERE type = '$bundle' LIMIT $offset_iterations, $max_iterations");
+      foreach ($result as $key=>$record) {      
+        $iteration_count++;      
+        $node = node_load($record->nid);
+        
+        termconsolidator_review($node) ? $changecount++ : $skipcount++;
+        
+      }
+
+print $iteration_count . " items reviewed from " . ($offset_iterations) . " to " . ($offset_iterations+$key) . ".<br />\n";
+print "$changecount changes made.<br />\n";
+  }
+
+  /**
+   * Walk through field tags for review.
+   *
+   */
+    function termconsolidator_review($node) {
+      // Must have a tag field, && must be an array.
+      if(!empty($node->field_tags['und'])) {
+        if(is_array($node->field_tags['und'])) {          
+           // Survey the terms
+          $changecount = 0;
+          foreach($node->field_tags['und'] as $key=>$termArray) {
+            $tid = $termArray['tid'];
+            $term = taxonomy_term_load($termArray['tid']);
+            
+            if($toptid = termconsolidator_firsttermid($term)) {
+              if($tid != $toptid) {
+                $changecount++;
+                $node->field_tags['und'][$key]['tid'] = $toptid;
+              }
+            }
+          }
+          
+          if($changecount) {
+print "NODE: <a href=\"/node/$node->nid/edit\">$node->nid</a>: Changed <em>$changecount</em> terms.<br />\n";
+            node_save($node); return TRUE; // Don't use node_submit, which changes Author.
+          } else {
+//print "NODE: <a href=\"/node/$node->nid/edit\">$node->nid</a>: No redundant terms used.<br />\n";
+          }
+        } else {
+print "NODE: <a href=\"/node/$node->nid/edit\">$node->nid</a>: NO TAGS to work with.<br />\n";
+        }
+      } else {
+//print "NODE: <a href=\"/node/$node->nid/edit\">$node->nid</a>: EMPTY tag field.<br />\n";
+      }
+
+      return FALSE;
+    }
+    
+  /**
+   * Return the first id of all terms matching this one.
+   *
+   */
+    function termconsolidator_firsttermid($term) {
+      $result = db_query("SELECT tid FROM {taxonomy_term_data} WHERE vid = :vid AND name = :name ORDER BY tid;", array(":vid" => $term->vid, ":name" => $term->name));
+      foreach ($result as $key=>$record) {
+        if($record->tid) return($record->tid);
+print "----RECORD for vid $term->vid/$term->name($key): tid=$record->tid<br />\n";
+      }
+
+      return FALSE;
+    }
